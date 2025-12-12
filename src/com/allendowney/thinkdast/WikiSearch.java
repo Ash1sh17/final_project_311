@@ -11,166 +11,161 @@ import java.util.Map.Entry;
 
 import redis.clients.jedis.Jedis;
 
-
 /**
  * Represents the results of a search query.
- *
+ * Each result maps a URL to a relevance score (term frequency).
  */
 public class WikiSearch {
 
-	// map from URLs that contain the term(s) to relevance score
-	private Map<String, Integer> map;
+    // Map from URL to relevance score
+    private Map<String, Integer> map;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param map
-	 */
-	public WikiSearch(Map<String, Integer> map) {
-		this.map = map;
-	}
+    /**
+     * Constructor.
+     *
+     * @param map map of URLs to relevance scores
+     */
+    public WikiSearch(Map<String, Integer> map) {
+        this.map = map;
+    }
 
-	/**
-	 * Looks up the relevance of a given URL.
-	 *
-	 * @param url
-	 * @return
-	 */
-	public Integer getRelevance(String url) {
-		Integer relevance = map.get(url);
-		return relevance==null ? 0: relevance;
-	}
+    /**
+     * Returns the relevance of a given URL.
+     *
+     * @param url Wikipedia page URL
+     * @return relevance score
+     */
+    public Integer getRelevance(String url) {
+        Integer relevance = map.get(url);
+        return relevance == null ? 0 : relevance;
+    }
 
-	/**
-	 * Prints the contents in order of term frequency.
-	 *
-	 * @param
-	 */
-	private  void print() {
-		List<Entry<String, Integer>> entries = sort();
-		for (Entry<String, Integer> entry: entries) {
-			System.out.println(entry);
-		}
-	}
+    /**
+     * Prints search results sorted by relevance.
+     */
+    private void print() {
+        List<Entry<String, Integer>> entries = sort();
+        for (Entry<String, Integer> entry : entries) {
+            System.out.println(entry);
+        }
+    }
 
-	/**
-	 * Computes the union of two search results.
-	 *
-	 * @param that
-	 * @return New WikiSearch object.
-	 */
-	public WikiSearch or(WikiSearch that) {
-		Map<String, Integer> union = new HashMap<String, Integer>(map);
-		for (String term: that.map.keySet()) {
-			int relevance = totalRelevance(this.getRelevance(term), that.getRelevance(term));
-			union.put(term, relevance);
-		}
-		return new WikiSearch(union);
-	}
+    /**
+     * OR query (union of results).
+     * Relevance is the sum of term frequencies.
+     */
+    public WikiSearch or(WikiSearch that) {
+        Map<String, Integer> union = new HashMap<>(map);
 
-	/**
-	 * Computes the intersection of two search results.
-	 *
-	 * @param that
-	 * @return New WikiSearch object.
-	 */
-	public WikiSearch and(WikiSearch that) {
-		Map<String, Integer> intersection = new HashMap<String, Integer>();
-		for (String term: map.keySet()) {
-			if (that.map.containsKey(term)) {
-				int relevance = totalRelevance(this.map.get(term), that.map.get(term));
-				intersection.put(term, relevance);
-			}
-		}
-		return new WikiSearch(intersection);
-	}
+        for (String url : that.map.keySet()) {
+            int relevance = totalRelevance(
+                    this.getRelevance(url),
+                    that.getRelevance(url)
+            );
+            union.put(url, relevance);
+        }
+        return new WikiSearch(union);
+    }
 
-	/**
-	 * Computes the intersection of two search results.
-	 *
-	 * @param that
-	 * @return New WikiSearch object.
-	 */
-	public WikiSearch minus(WikiSearch that) {
-		Map<String, Integer> difference = new HashMap<String, Integer>(map);
-		for (String term: that.map.keySet()) {
-			difference.remove(term);
-		}
-		return new WikiSearch(difference);
-	}
+    /**
+     * AND query (intersection of results).
+     * Relevance is the sum of term frequencies.
+     */
+    public WikiSearch and(WikiSearch that) {
+        Map<String, Integer> intersection = new HashMap<>();
 
-	/**
-	 * Computes the relevance of a search with multiple terms.
-	 *
-	 * @param rel1: relevance score for the first search
-	 * @param rel2: relevance score for the second search
-	 * @return
-	 */
-	protected int totalRelevance(Integer rel1, Integer rel2) {
-		// simple starting place: relevance is the sum of the term frequencies.
-		return rel1 + rel2;
-	}
-
-	/**
-	 * Sort the results by relevance.
-	 *
-	 * @return List of entries with URL and relevance.
-	 */
-	public List<Entry<String, Integer>> sort() {
-		// NOTE: this can be done more concisely in Java 8.  See
-		// http://stackoverflow.com/questions/109383/sort-a-mapkey-value-by-values-java
-
-		// make a list of entries
-		List<Entry<String, Integer>> entries = 
-				new LinkedList<Entry<String, Integer>>(map.entrySet());
-		
-		// make a Comparator object for sorting
-		Comparator<Entry<String, Integer>> comparator = new Comparator<Entry<String, Integer>>() {
-            @Override
-            public int compare(Entry<String, Integer> e1, Entry<String, Integer> e2) {
-                return e1.getValue().compareTo(e2.getValue());
+        for (String url : map.keySet()) {
+            if (that.map.containsKey(url)) {
+                int relevance = totalRelevance(
+                        this.map.get(url),
+                        that.map.get(url)
+                );
+                intersection.put(url, relevance);
             }
-        };
-        
-        // sort and return the entries
-		Collections.sort(entries, comparator);
-		return entries;
-	}
+        }
+        return new WikiSearch(intersection);
+    }
 
+    /**
+     * MINUS query (difference of results).
+     * Keeps pages in this search but not in the other.
+     */
+    public WikiSearch minus(WikiSearch that) {
+        Map<String, Integer> difference = new HashMap<>(map);
 
-	/**
-	 * Performs a search and makes a WikiSearch object.
-	 *
-	 * @param term
-	 * @param index
-	 * @return
-	 */
-	public static WikiSearch search(String term, JedisIndex index) {
-		Map<String, Integer> map = index.getCounts(term);
-		return new WikiSearch(map);
-	}
+        for (String url : that.map.keySet()) {
+            difference.remove(url);
+        }
+        return new WikiSearch(difference);
+    }
 
-	public static void main(String[] args) throws IOException {
+    /**
+     * Computes combined relevance.
+     * For Exercise 13, relevance is the sum of term frequencies.
+     */
+    protected int totalRelevance(Integer rel1, Integer rel2) {
+        return rel1 + rel2;
+    }
 
-		// make a JedisIndex
-		Jedis jedis = JedisMaker.make();
-		JedisIndex index = new JedisIndex(jedis);
+    /**
+     * Sorts results by increasing relevance.
+     *
+     * @return sorted list of entries
+     */
+    public List<Entry<String, Integer>> sort() {
+        List<Entry<String, Integer>> entries =
+                new LinkedList<>(map.entrySet());
 
-		// search for the first term
-		String term1 = "java";
-		System.out.println("Query: " + term1);
-		WikiSearch search1 = search(term1, index);
-		search1.print();
+        Comparator<Entry<String, Integer>> comparator =
+                (e1, e2) -> e1.getValue().compareTo(e2.getValue());
 
-		// search for the second term
-		String term2 = "programming";
-		System.out.println("Query: " + term2);
-		WikiSearch search2 = search(term2, index);
-		search2.print();
+        Collections.sort(entries, comparator);
+        return entries;
+    }
 
-		// compute the intersection of the searches
-		System.out.println("Query: " + term1 + " AND " + term2);
-		WikiSearch intersection = search1.and(search2);
-		intersection.print();
-	}
+    /**
+     * Performs a search for a single term.
+     */
+    public static WikiSearch search(String term, JedisIndex index) {
+        Map<String, Integer> map = index.getCounts(term);
+        return new WikiSearch(map);
+    }
+
+    /**
+     * Main method that runs all Exercise 13 queries.
+     */
+    public static void main(String[] args) throws IOException {
+
+        // Create Redis index
+        Jedis jedis = JedisMaker.make();
+        JedisIndex index = new JedisIndex(jedis);
+
+        String term1 = "java";
+        String term2 = "programming";
+
+        // Single-term search: java
+        System.out.println("\n=== Query: " + term1 + " ===");
+        WikiSearch search1 = search(term1, index);
+        search1.print();
+
+        // Single-term search: programming
+        System.out.println("\n=== Query: " + term2 + " ===");
+        WikiSearch search2 = search(term2, index);
+        search2.print();
+
+        // AND query
+        System.out.println("\n=== Query: " + term1 + " AND " + term2 + " ===");
+        WikiSearch andSearch = search1.and(search2);
+        andSearch.print();
+
+        // OR query
+        System.out.println("\n=== Query: " + term1 + " OR " + term2 + " ===");
+        WikiSearch orSearch = search1.or(search2);
+        orSearch.print();
+
+        // MINUS query
+        System.out.println("\n=== Query: " + term1 + " MINUS " + term2 + " ===");
+        WikiSearch minusSearch = search1.minus(search2);
+        minusSearch.print();
+    }
 }
